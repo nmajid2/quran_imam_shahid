@@ -4,8 +4,16 @@ from tests.conftest import AUTH
 def test_list_surahs(client):
     r = client.get("/v1/quran", headers=AUTH)
     assert r.status_code == 200
-    numbers = {s["number"] for s in r.json()["surahs"]}
-    assert {1, 112} <= numbers
+    surahs = r.json()["surahs"]
+    # Full Quran is loaded from the verified Tanzil source.
+    assert len(surahs) == 114
+    numbers = {s["number"] for s in surahs}
+    assert numbers == set(range(1, 115))
+    # Spot-check metadata for Al-Baqara (the longest surah).
+    baqara = next(s for s in surahs if s["number"] == 2)
+    assert baqara["ayah_count"] == 286
+    assert baqara["name_ar"] == "البقرة"
+    assert baqara["revelation_place"] == "madinah"
 
 
 def test_get_surah_with_translations(client):
@@ -20,4 +28,5 @@ def test_get_surah_with_translations(client):
 
 
 def test_unknown_surah_404(client):
-    assert client.get("/v1/quran/77", headers=AUTH).status_code == 404
+    # 115 is out of range (Quran has 114 surahs).
+    assert client.get("/v1/quran/115", headers=AUTH).status_code == 404
