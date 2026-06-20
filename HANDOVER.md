@@ -68,13 +68,79 @@ There is also persistent memory at
   S23 Ultra, serial `R3CW50DLQFK`). It fetches the surah list from the gateway and
   renders it (Arabic + translation + language switcher). Has a reader page + tafsir sheet.
 
+- **Recitation audio — gateway side DONE.** Verified reciter manifest
+  (`content/reciters.json`, 24 Qaris incl. Abdul Basit; **Parhizgar default**, Shia-first)
+  loaded by `ReciterCatalog` (`content/reciters.py`) and served via `/v1/reciters`,
+  `/v1/audio/{reciter}/{surah}/{ayah}`, `/v1/audio/{reciter}/{surah}`. Source = EveryAyah
+  per-ayah MP3s (`{folder}/{SSS}{AAA}.mp3`). All folders curl-verified 200. **32/32 tests**.
+
+- **Word lexicon (tap a word) — Mufradat DONE, embedded.** Tap any Arabic word in the
+  reader → bottom sheet shows its **root** + **Mufradat** (Raghib al-Isfahani) entry,
+  fully offline. Pipeline (in `tools/lexicon/`): Quranic morphology
+  ([mustafa0x/quran-morphology]) → word→root map (portable `norm()`, ~74% token coverage;
+  rest are rootless particles); Mufradat scraped from Shamela book 23636 (881 pages,
+  segmented by `[root]` markers → 1,425 entries) → `app/assets/lexicon/lexicon.db.gz`
+  (1.2 MB). App: `features/lexicon/lexicon_db.dart` (sqflite, gunzip on first run; the
+  Dart `normalizeArabic` MUST stay identical to the Python `norm`), `lexicon_sheet.dart`,
+  tappable words in `surah_reader_page.dart`.
+  **al-Tahqiq (Mostafavi):** user will provide/license it; drops in as a 2nd `entry.book`
+  ('tahqiq') keyed by the same corpus roots — add it to `lexiconBooks` and rebuild the DB.
+
 ### 🚧 Not done yet / stubs
-- **Tafsir corpus is a tiny placeholder** (`content/seed/tafsir_seed.json`, a couple of
-  ayat). Real Shia tafsir corpus + **vector RAG** not built. `ContentStore.retrieve()`
-  is exact-ayah-match "RAG-lite".
+- **Book tafsir — gateway side DONE.** 3 authentic **Persian** Shia tafsirs ingested:
+  **al-Mizan** (Tabatabai), **Nemooneh** (Makarem), **Noor** (Qaraati). Source =
+  [app-furqan/quran-app-data] SQLite DBs (per-ayah, Markdown), extracted at startup from
+  committed `.tar.xz` (DBs git-ignored). Served via `/v1/tafsirs` + `/v1/tafsir/{id}/{s}/{a}`.
+  **English/Urdu deliberately excluded** (upstream marks them AI-produced → violates hard
+  rule #1). License CC BY-ND 4.0 (attribution required). See `content/tafsir_data/SOURCES.md`.
+  **37/37 tests.** ⏳ Still to wire in the app (tafsir-source picker + Markdown render).
+- **AI tafsir + vector RAG still placeholder** — the `POST /v1/tafsir` AI path still uses
+  `content/seed/tafsir_seed.json` + exact-ayah-match `ContentStore.retrieve()`. The new
+  book tafsir above could feed real RAG later.
+- **Book tafsir — app side WIRED** (analyzer-clean, span-fix verified on device). The
+  reader's tafsir sheet shows a **source picker** (al-Mizan / Nemooneh / Noor), renders
+  Persian Markdown via `flutter_markdown_plus` (RTL), and **strips the `<span>` ayah
+  anchors + ```arabic/```farsi info-strings** at render time (`_cleanMarkdown`).
+  These tafsirs are **passage-based**: the gateway returns `ayah_start/ayah_end` and the
+  sheet shows a banner "covers ayat X–Y together" (al-Mizan ≈10 ayat/block, Noor ≈1.6).
+  **Offline = EMBEDDED IN APK** (user choice): the 3 tafsir `.tar.xz` archives are
+  bundled as Flutter assets (`app/assets/tafsir/`, ~28 MB). On first use of an edition,
+  `features/tafsir/tafsir_db.dart` extracts its `.db` (xz→tar in a background isolate
+  via `compute`) to app docs and queries it with **sqflite** — **no gateway needed for
+  tafsir**. License-clean (original DBs unmodified; CC BY-ND attribution shown). First
+  open of each edition has a one-time extraction delay (al-Mizan/Noor ~40 MB, Nemooneh
+  ~85 MB on device). Deps added: `sqflite`, `archive`. The old gateway-download/cache
+  approach was removed from the app (gateway `/v1/tafsir*` endpoints kept but unused by app).
 - **Reasoning still defaults to Claude CLI** (`AI_PROVIDER=claude_cli`); OpenAI powers
   STT/TTS only. The CLI provider falls back to a grounded summary if no CLI present.
-- **No recitation audio** (Qari playback), no pronunciation coaching.
+- **UI REDESIGN DONE & verified on device.** Multi-theme system (`core/theme.dart`
+  `AppPreset` + 5 presets: Sahar/Aurora/Emerald/Amber/Plum) with light/dark/auto,
+  persisted (`core/theme_controller.dart`, secure storage, loaded before first frame),
+  animated theme switching. Theme picker (`features/settings/theme_picker_sheet.dart`).
+  **Futuristic visual language:** `widgets/app_background.dart` = animated **aurora**
+  (drifting radial glows, CustomPaint in a RepaintBoundary — isolated, GPU-cheap, no blur);
+  `widgets/glass.dart` = real frosted **BackdropFilter** glass used ONLY on fixed surfaces
+  (app bars, player bar) — never per list item; `widgets/app_card.dart` = gradient-border
+  glass card with accent glow when selected (blur-free for scroll perf). Gradient (ShaderMask)
+  title, glowing number badges, glowing active controls.
+  **Home = solar-system hero** (`widgets/galaxy_background.dart`): a FIXED world (a glowing
+  sun with 5 planets on tilted elliptical orbits + faint orbit rings, in a parallax
+  starfield) viewed by a CAMERA that the list scroll moves. Idle = camera still, only
+  planets orbit (Ticker time) + stars twinkle in place (no drift); scrolling pans the camera
+  through space (`_scroll` ValueNotifier from the CustomScrollView controller, cam = scroll
+  ·0.32), sliding star systems in/out — systems repeat every 1.5 screens so one is always
+  found as you travel. Tinted by the active preset, isolated in a RepaintBoundary (cheap
+  fills, no blur). Home renders in the preset's DARK theme regardless of mode (space
+  scene) with **translucent** glass cards (`AppCard(translucent: true)`). Reader uses the
+  aurora background + glass ayah cards + current-ayah glow + frosted glowing player bar. Motion = `flutter_animate` run-once entrances + fade-through page
+  transitions. Light-first default; **dark mode is the most futuristic.**
+
+- **Recitation audio — app side WIRED** (analyzer-clean; not yet run on the phone).
+  Bottom **PlayerBar** in the reader: play/pause, prev/next ayah, reciter picker
+  (grouped Shia/Classic/Sunni, Parhizgar default), and **per-surah on-demand download**
+  for offline play (streams from EveryAyah until downloaded, then plays local files).
+  Per-ayah play icon + current-ayah highlight. Uses `just_audio` + `path_provider`.
+  ⏳ Still to do: run/verify on device; pronunciation coaching (separate feature).
 - **Hifz (memorization) tracker** — designed (TECHNICAL_DESIGN §7b, IMPLEMENTATION_PLAN
   Phase 5) but **not implemented**.
 - **Children's section** — not started.
@@ -135,12 +201,16 @@ gateway/                         FastAPI gateway (Python)
       openai_provider.py         OpenAiProvider (migration target; implemented)
     content/
       store.py                   ★ ContentStore — parses Tanzil files → 114 surahs
+      reciters.py                ReciterCatalog — loads reciters.json, resolves audio URLs
+      reciters.json              ★ verified manifest of 24 reciters (EveryAyah folders)
+      tafsir.py                  TafsirStore — extracts + reads 3 Persian Shia tafsir DBs
+      tafsir_data/               ★ tafsir .tar.xz archives + SOURCES.md (DBs git-ignored)
       quran_data/                ★ verified Tanzil sources (ar/fa/en/nl + metadata xml)
       seed/tafsir_seed.json      placeholder tafsir (RAG-lite)
     voice/
       speech.py                  OpenAI Whisper STT + TTS engine (None if no key)
       classify.py                transcript → navigation intent / question heuristic
-    routes/                      health, quran, voice (stt/tts/voice), reason (ask/tafsir)
+    routes/                      health, quran, audio (reciters/audio), tafsir_book (tafsirs/tafsir), voice, reason (ask/tafsir)
   tests/                         26 pytest tests (conftest forces OPENAI_API_KEY="" )
 
 app/                             Flutter app (Dart)
@@ -157,6 +227,9 @@ app/                             Flutter app (Dart)
       surah_list/surah_list_page.dart   home: list of 114 surahs
       reader/surah_reader_page.dart     per-surah reader
       reader/tafsir_sheet.dart          tafsir bottom sheet
+      audio/audio_controller.dart       ★ just_audio player + state/providers (single ayah + continuous surah)
+      audio/download_manager.dart       per-surah offline download to app docs dir
+      audio/player_bar.dart             bottom playback bar + reciter picker
   android/                       generated platform project (pkg com.imamshahid.quran_imam_shahid)
 ```
 

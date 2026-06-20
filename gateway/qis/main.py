@@ -10,8 +10,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from qis import __version__
 from qis.ai.provider import build_provider
 from qis.config import get_settings
+from qis.content.reciters import get_catalog
 from qis.content.store import get_store
-from qis.routes import health, quran, reason, voice
+from qis.content.tafsir import get_tafsir_store
+from qis.routes import audio, health, quran, reason, tafsir_book, voice
 from qis.voice.speech import build_speech_engine
 
 
@@ -23,6 +25,8 @@ async def lifespan(app: FastAPI):
     # Speech engine is None when no OpenAI key is configured (graceful degrade).
     app.state.speech = build_speech_engine(settings)
     get_store()
+    get_catalog()
+    get_tafsir_store()
     yield
 
 
@@ -41,6 +45,8 @@ def create_app() -> FastAPI:
     )
     app.include_router(health.router)
     app.include_router(quran.router)
+    app.include_router(audio.router)
+    app.include_router(tafsir_book.router)
     app.include_router(reason.router)
     app.include_router(voice.router)
     return app

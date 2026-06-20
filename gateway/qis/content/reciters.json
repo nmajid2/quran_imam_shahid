@@ -1,0 +1,213 @@
+{
+  "schema_version": 1,
+  "source": {
+    "name": "EveryAyah",
+    "homepage": "https://everyayah.com",
+    "base_url": "https://everyayah.com/data",
+    "url_template": "{base_url}/{folder}/{surah:03d}{ayah:03d}.mp3",
+    "notes": [
+      "One MP3 per ayah. Single-ayah playback = one file; full-surah playback = files 001..N in sequence.",
+      "surah and ayah are zero-padded to 3 digits, e.g. surah 2 ayah 286 -> 002286.mp3",
+      "All folders below were verified to return HTTP 200 on 2026-06-19.",
+      "Licensing: EveryAyah serves these freely and they are used widely, but no formal per-reciter license is published. Fine for personal scope; revisit before any public release (same posture as the non-commercial Tanzil translations)."
+    ]
+  },
+  "default_reciter": "parhizgar",
+  "reciters": [
+    {
+      "id": "parhizgar",
+      "display_name": "Shahriar Parhizgar",
+      "display_name_fa": "شهریار پرهیزگار",
+      "folder": "Parhizgar_48kbps",
+      "bitrate_kbps": 48,
+      "style": "murattal",
+      "tradition": "shia",
+      "default": true
+    },
+    {
+      "id": "karim_mansoori",
+      "display_name": "Karim Mansoori",
+      "display_name_fa": "کریم منصوری",
+      "folder": "Karim_Mansoori_40kbps",
+      "bitrate_kbps": 40,
+      "style": "murattal",
+      "tradition": "shia"
+    },
+    {
+      "id": "abdul_basit_murattal",
+      "display_name": "Abdul Basit Abdus-Samad (Murattal)",
+      "folder": "Abdul_Basit_Murattal_64kbps",
+      "bitrate_kbps": 64,
+      "style": "murattal",
+      "tradition": "universal"
+    },
+    {
+      "id": "abdul_basit_mujawwad",
+      "display_name": "Abdul Basit Abdus-Samad (Mujawwad)",
+      "folder": "Abdul_Basit_Mujawwad_128kbps",
+      "bitrate_kbps": 128,
+      "style": "mujawwad",
+      "tradition": "universal"
+    },
+    {
+      "id": "husary",
+      "display_name": "Mahmoud Khalil Al-Husary",
+      "folder": "Husary_64kbps",
+      "bitrate_kbps": 64,
+      "style": "murattal",
+      "tradition": "universal"
+    },
+    {
+      "id": "husary_mujawwad",
+      "display_name": "Mahmoud Khalil Al-Husary (Mujawwad)",
+      "folder": "Husary_128kbps_Mujawwad",
+      "bitrate_kbps": 128,
+      "style": "mujawwad",
+      "tradition": "universal"
+    },
+    {
+      "id": "minshawy_murattal",
+      "display_name": "Mohamed Siddiq El-Minshawi (Murattal)",
+      "folder": "Minshawy_Murattal_128kbps",
+      "bitrate_kbps": 128,
+      "style": "murattal",
+      "tradition": "universal"
+    },
+    {
+      "id": "minshawy_mujawwad",
+      "display_name": "Mohamed Siddiq El-Minshawi (Mujawwad)",
+      "folder": "Minshawy_Mujawwad_64kbps",
+      "bitrate_kbps": 64,
+      "style": "mujawwad",
+      "tradition": "universal"
+    },
+    {
+      "id": "mustafa_ismail",
+      "display_name": "Mustafa Ismail",
+      "folder": "Mustafa_Ismail_48kbps",
+      "bitrate_kbps": 48,
+      "style": "mujawwad",
+      "tradition": "universal"
+    },
+    {
+      "id": "alafasy",
+      "display_name": "Mishary Rashid Alafasy",
+      "folder": "Alafasy_64kbps",
+      "bitrate_kbps": 64,
+      "style": "murattal",
+      "tradition": "sunni"
+    },
+    {
+      "id": "sudais",
+      "display_name": "Abdurrahman As-Sudais",
+      "folder": "Abdurrahmaan_As-Sudais_64kbps",
+      "bitrate_kbps": 64,
+      "style": "murattal",
+      "tradition": "sunni"
+    },
+    {
+      "id": "shuraim",
+      "display_name": "Saud Ash-Shuraim",
+      "folder": "Saood_ash-Shuraym_64kbps",
+      "bitrate_kbps": 64,
+      "style": "murattal",
+      "tradition": "sunni"
+    },
+    {
+      "id": "maher_almuaiqly",
+      "display_name": "Maher Al Muaiqly",
+      "folder": "Maher_AlMuaiqly_64kbps",
+      "bitrate_kbps": 64,
+      "style": "murattal",
+      "tradition": "sunni"
+    },
+    {
+      "id": "ghamadi",
+      "display_name": "Saad Al-Ghamdi",
+      "folder": "Ghamadi_40kbps",
+      "bitrate_kbps": 40,
+      "style": "murattal",
+      "tradition": "sunni"
+    },
+    {
+      "id": "shatri",
+      "display_name": "Abu Bakr Ash-Shatri",
+      "folder": "Abu_Bakr_Ash-Shaatree_64kbps",
+      "bitrate_kbps": 64,
+      "style": "murattal",
+      "tradition": "sunni"
+    },
+    {
+      "id": "hudhaify",
+      "display_name": "Ali Al-Hudhaify",
+      "folder": "Hudhaify_64kbps",
+      "bitrate_kbps": 64,
+      "style": "murattal",
+      "tradition": "sunni"
+    },
+    {
+      "id": "muhammad_ayyoub",
+      "display_name": "Muhammad Ayyoub",
+      "folder": "Muhammad_Ayyoub_64kbps",
+      "bitrate_kbps": 64,
+      "style": "murattal",
+      "tradition": "sunni"
+    },
+    {
+      "id": "ibrahim_akhdar",
+      "display_name": "Ibrahim Al-Akhdar",
+      "folder": "Ibrahim_Akhdar_32kbps",
+      "bitrate_kbps": 32,
+      "style": "murattal",
+      "tradition": "sunni"
+    },
+    {
+      "id": "hani_rifai",
+      "display_name": "Hani Ar-Rifai",
+      "folder": "Hani_Rifai_64kbps",
+      "bitrate_kbps": 64,
+      "style": "murattal",
+      "tradition": "sunni"
+    },
+    {
+      "id": "nasser_alqatami",
+      "display_name": "Nasser Al Qatami",
+      "folder": "Nasser_Alqatami_128kbps",
+      "bitrate_kbps": 128,
+      "style": "murattal",
+      "tradition": "sunni"
+    },
+    {
+      "id": "yasser_addussary",
+      "display_name": "Yasser Ad-Dussary",
+      "folder": "Yasser_Ad-Dussary_128kbps",
+      "bitrate_kbps": 128,
+      "style": "murattal",
+      "tradition": "sunni"
+    },
+    {
+      "id": "abdullah_basfar",
+      "display_name": "Abdullah Basfar",
+      "folder": "Abdullah_Basfar_64kbps",
+      "bitrate_kbps": 64,
+      "style": "murattal",
+      "tradition": "sunni"
+    },
+    {
+      "id": "ali_jaber",
+      "display_name": "Ali Jaber",
+      "folder": "Ali_Jaber_64kbps",
+      "bitrate_kbps": 64,
+      "style": "murattal",
+      "tradition": "sunni"
+    },
+    {
+      "id": "fares_abbad",
+      "display_name": "Fares Abbad",
+      "folder": "Fares_Abbad_64kbps",
+      "bitrate_kbps": 64,
+      "style": "murattal",
+      "tradition": "sunni"
+    }
+  ]
+}
