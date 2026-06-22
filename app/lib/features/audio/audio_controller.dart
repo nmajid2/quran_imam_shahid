@@ -178,6 +178,17 @@ class AudioController extends StateNotifier<AudioState> {
     await playAyah(start, continuous: true);
   }
 
+  /// Select an ayah as THE active one — the card highlight, the AI summary target,
+  /// and the start point for the bottom play button — without auto-playing. This is
+  /// the single source of truth, so tapping a card and tapping a card's play button
+  /// can never produce two different "selected" cards. Stops any current playback so
+  /// the highlight always matches the player.
+  Future<void> select(int ayah) async {
+    if (state.currentAyah == ayah) return; // already active — don't interrupt
+    await _player.stop();
+    state = state.copyWith(currentAyah: ayah, continuous: false, playing: false);
+  }
+
   /// The bottom bar's main button: a surah-level play/pause. Unlike [toggle]
   /// (which preserves single-ayah mode), this always continues the surah from
   /// the current position — so pressing it after a single card ayah keeps

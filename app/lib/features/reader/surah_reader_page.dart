@@ -11,6 +11,7 @@ import '../../widgets/app_card.dart';
 import '../audio/audio_controller.dart';
 import '../audio/player_bar.dart';
 import '../lexicon/lexicon_sheet.dart';
+import 'ai_summary_sheet.dart';
 import 'tafsir_sheet.dart';
 
 class SurahReaderPage extends ConsumerStatefulWidget {
@@ -27,11 +28,52 @@ class _SurahReaderPageState extends ConsumerState<SurahReaderPage> {
 
   GlobalKey _keyFor(int ayah) => _ayahKeys.putIfAbsent(ayah, () => GlobalKey());
 
-  /// Keep the ayah being recited in view during continuous playback.
+  /// Ayah numbers whose cards are currently (at least partly) on screen — the
+  /// `ListView.builder` only builds items near the viewport, so iterating the live
+  /// keys and intersecting with the visible band yields just the on-screen ayat.
+  List<int> _visibleAyat() {
+    final media = MediaQuery.of(context);
+    final top = media.padding.top + kToolbarHeight;
+    final bottom = media.size.height - 120; // ~player bar height
+    final visible = <int>[];
+    for (final entry in _ayahKeys.entries) {
+      final ctx = entry.value.currentContext;
+      if (ctx == null) continue;
+      final box = ctx.findRenderObject() as RenderBox?;
+      if (box == null || !box.attached || !box.hasSize) continue;
+      final y = box.localToGlobal(Offset.zero).dy;
+      if (y + box.size.height > top && y < bottom) visible.add(entry.key);
+    }
+    visible.sort();
+    return visible;
+  }
+
+  void _openAiSummary() {
+    final s = ref.read(surahProvider(widget.number)).valueOrNull;
+    if (s == null) return;
+    final audio = ref.read(audioControllerProvider);
+    List<int> ayat;
+    if (audio.surah == s.number && audio.currentAyah != null) {
+      ayat = [audio.currentAyah!]; // the selected / active ayah (tap or play)
+    } else {
+      ayat = _visibleAyat(); // else whatever is on screen
+      if (ayat.isEmpty) ayat = [s.ayat.first.ayah];
+      if (ayat.length > 12) ayat = ayat.sublist(0, 12); // bound the prompt
+    }
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => AiSummarySheet(
+          surah: s, ayahNumbers: ayat, lang: ref.read(languageProvider)),
+    );
+  }
+
+  /// Keep the ayah being recited in view during continuous playback. Only while
+  /// playing — a manual card selection shouldn't jump the list.
   void _onAudio(AudioState? prev, AudioState next) {
     if (next.surah != widget.number) return;
     final ayah = next.currentAyah;
-    if (ayah == null || ayah == _lastScrolledAyah) return;
+    if (ayah == null || !next.playing || ayah == _lastScrolledAyah) return;
     _lastScrolledAyah = ayah;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final ctx = _ayahKeys[ayah]?.currentContext;
@@ -93,6 +135,16 @@ class _SurahReaderPageState extends ConsumerState<SurahReaderPage> {
               ),
             ],
           ),
+          actions: [
+            surah.maybeWhen(
+              data: (_) => IconButton(
+                tooltip: 'AI summary (selected ayah, or the ayat on screen)',
+                icon: const Icon(Icons.auto_awesome),
+                onPressed: _openAiSummary,
+              ),
+              orElse: () => const SizedBox.shrink(),
+            ),
+          ],
         ),
         body: surah.when(
           loading: () => const Center(child: CircularProgressIndicator()),
@@ -137,6 +189,10 @@ class _AyahTile extends ConsumerWidget {
 
     return AppCard(
       selected: isCurrent,
+      // Tapping the card body selects this ayah (the AI target + play start point) —
+      // the same single state the play button uses. Word taps and the icon buttons
+      // still win their taps.
+      onTap: () => ref.read(audioControllerProvider.notifier).select(ayah.ayah),
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

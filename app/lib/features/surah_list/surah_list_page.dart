@@ -11,6 +11,7 @@ import '../../data/models/surah.dart';
 import '../../widgets/app_card.dart';
 import '../../widgets/galaxy_background.dart';
 import '../reader/surah_reader_page.dart';
+import '../settings/settings_page.dart';
 import '../settings/theme_picker_sheet.dart';
 
 class SurahListPage extends ConsumerStatefulWidget {
@@ -130,6 +131,13 @@ class _SurahListPageState extends ConsumerState<SurahListPage> {
                         PopupMenuItem(value: 'en', child: Text('English')),
                         PopupMenuItem(value: 'nl', child: Text('Nederlands')),
                       ],
+                    ),
+                    IconButton(
+                      tooltip: 'Settings',
+                      icon: const Icon(Icons.settings_outlined),
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const SettingsPage()),
+                      ),
                     ),
                     const SizedBox(width: 6),
                   ],
