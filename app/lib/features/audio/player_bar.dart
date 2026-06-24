@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/providers.dart';
 import '../../data/models/reciter.dart';
 import 'audio_controller.dart';
+import 'audio_prefs.dart';
+import 'download_progress.dart';
 
 /// Persistent playback bar shown at the bottom of the reader. Controls the whole
 /// surah (play/pause, prev/next ayah), lets the user pick a reciter, and downloads
@@ -55,6 +57,10 @@ class _PlayerBarState extends ConsumerState<PlayerBar> {
         final reciter = catalog.byId(_effectiveReciter(catalog) ?? '');
         final lang = ref.watch(languageProvider);
         final controller = ref.read(audioControllerProvider.notifier);
+        // Read-the-translation toggle: shown only for languages that have a
+        // human translation-audio source (fa/en); Dutch has none.
+        final hasTranslation = catalog.translationFor(lang) != null;
+        final playTranslation = ref.watch(playTranslationProvider);
 
         final dark = theme.brightness == Brightness.dark;
         return ClipRRect(
@@ -87,7 +93,16 @@ class _PlayerBarState extends ConsumerState<PlayerBar> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (audio.downloading) _downloadProgress(audio, theme),
+                if (audio.downloading)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 2),
+                    child: DownloadProgressView(
+                      done: audio.downloadDone,
+                      total: audio.downloadTotal,
+                      translationPhase: audio.downloadingTranslation,
+                      langCode: lang.toUpperCase(),
+                    ),
+                  ),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   child: Row(
@@ -106,15 +121,26 @@ class _PlayerBarState extends ConsumerState<PlayerBar> {
                           onPressed: () => _pickReciter(context, catalog, lang),
                         ),
                       ),
+                      if (hasTranslation)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 2),
+                          child: _TranslateToggle(
+                            active: playTranslation,
+                            langCode: lang.toUpperCase(),
+                            onTap: () => ref
+                                .read(playTranslationProvider.notifier)
+                                .state = !playTranslation,
+                          ),
+                        ),
                       IconButton(
                         tooltip: 'Previous ayah',
-                        icon: const Icon(Icons.skip_previous),
+                        icon: const Icon(Icons.skip_previous_rounded),
                         onPressed: audio.hasPrev ? controller.prev : null,
                       ),
                       _playButton(audio, controller, theme),
                       IconButton(
                         tooltip: 'Next ayah',
-                        icon: const Icon(Icons.skip_next),
+                        icon: const Icon(Icons.skip_next_rounded),
                         onPressed: audio.hasNext ? controller.next : null,
                       ),
                       _downloadButton(audio, controller, theme),
@@ -141,14 +167,39 @@ class _PlayerBarState extends ConsumerState<PlayerBar> {
             width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)),
       );
     }
+    final playing = audio.playing;
     final label = audio.currentAyah == null
         ? 'Play surah'
-        : (audio.playing ? 'Pause' : 'Resume');
-    return IconButton.filled(
-      tooltip: label,
-      iconSize: 32,
-      icon: Icon(audio.playing ? Icons.pause : Icons.play_arrow),
-      onPressed: controller.toggleSurah,
+        : (playing ? 'Pause' : 'Resume');
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        boxShadow: playing
+            ? [
+                BoxShadow(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.45),
+                  blurRadius: 16,
+                  spreadRadius: 1,
+                ),
+              ]
+            : const [],
+      ),
+      child: IconButton.filled(
+        tooltip: label,
+        iconSize: 32,
+        icon: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 220),
+          transitionBuilder: (child, anim) =>
+              ScaleTransition(scale: anim, child: child),
+          child: Icon(
+            playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+            key: ValueKey(playing),
+          ),
+        ),
+        onPressed: controller.toggleSurah,
+      ),
     );
   }
 
@@ -161,34 +212,12 @@ class _PlayerBarState extends ConsumerState<PlayerBar> {
             width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
       );
     }
-    if (audio.downloaded) {
-      return IconButton(
-        tooltip: 'Downloaded for offline',
-        icon: Icon(Icons.download_done, color: theme.colorScheme.primary),
-        onPressed: null,
-      );
-    }
+    // Fully downloaded (Arabic + translation where applicable) → no button.
+    if (audio.downloaded) return const SizedBox.shrink();
     return IconButton(
       tooltip: 'Download surah for offline',
-      icon: const Icon(Icons.download_outlined),
+      icon: const Icon(Icons.download_rounded),
       onPressed: controller.downloadCurrentSurah,
-    );
-  }
-
-  Widget _downloadProgress(AudioState audio, ThemeData theme) {
-    final value = audio.downloadTotal == 0
-        ? null
-        : audio.downloadDone / audio.downloadTotal;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-      child: Row(
-        children: [
-          Expanded(child: LinearProgressIndicator(value: value)),
-          const SizedBox(width: 8),
-          Text('${audio.downloadDone}/${audio.downloadTotal}',
-              style: theme.textTheme.bodySmall),
-        ],
-      ),
     );
   }
 
@@ -242,6 +271,135 @@ class _PlayerBarState extends ConsumerState<PlayerBar> {
           return ListView(controller: scrollController, children: tiles);
         },
       ),
+    );
+  }
+}
+
+/// Animated, glassy "read translation aloud" toggle. Off: a quiet outlined pill;
+/// on: a glowing gradient pill that gently pulses — matching the app's
+/// futuristic galaxy styling. Shows the translation language code (FA / EN).
+class _TranslateToggle extends StatefulWidget {
+  const _TranslateToggle({
+    required this.active,
+    required this.langCode,
+    required this.onTap,
+  });
+  final bool active;
+  final String langCode;
+  final VoidCallback onTap;
+
+  @override
+  State<_TranslateToggle> createState() => _TranslateToggleState();
+}
+
+class _TranslateToggleState extends State<_TranslateToggle>
+    with TickerProviderStateMixin {
+  // _appear: 0 = off, 1 = on (drives the whole look). _pulse: the breathing glow
+  // while on. Everything is computed from these two — no implicit AnimatedContainer
+  // chasing a moving target — so each activation reaches FULL brightness.
+  late final AnimationController _appear;
+  late final AnimationController _pulse;
+
+  @override
+  void initState() {
+    super.initState();
+    _appear = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 240),
+      value: widget.active ? 1 : 0,
+    );
+    _pulse = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 1700))
+      ..repeat(reverse: true);
+  }
+
+  @override
+  void didUpdateWidget(covariant _TranslateToggle old) {
+    super.didUpdateWidget(old);
+    if (widget.active != old.active) {
+      widget.active ? _appear.forward() : _appear.reverse();
+    }
+  }
+
+  @override
+  void dispose() {
+    _appear.dispose();
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return AnimatedBuilder(
+      animation: Listenable.merge([_appear, _pulse]),
+      builder: (context, _) {
+        final a = Curves.easeOut.transform(_appear.value); // 0..1 on-ness
+        final p = _pulse.value; // 0..1 breathing (only matters while on)
+        final content = Color.lerp(cs.onSurfaceVariant, cs.onPrimary, a)!;
+        final glass = cs.surfaceContainerHighest.withValues(alpha: 0.22);
+        return Transform.scale(
+          scale: 1.0 + 0.025 * a * p,
+          child: Container(
+            decoration: BoxDecoration(
+              // Glass when off → bright primary (with a white sheen) when on.
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color.lerp(glass, Color.lerp(cs.primary, Colors.white, 0.30)!, a)!,
+                  Color.lerp(glass, cs.primary, a)!,
+                ],
+              ),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: Color.lerp(
+                  cs.outlineVariant.withValues(alpha: 0.6),
+                  Colors.white.withValues(alpha: 0.55 + 0.25 * p),
+                  a,
+                )!,
+                width: 1 + 0.4 * a,
+              ),
+              // Glow scales with on-ness; bright even at the pulse's trough.
+              boxShadow: [
+                BoxShadow(
+                  color: cs.primary.withValues(alpha: a * (0.5 + 0.3 * p)),
+                  blurRadius: a * (16 + 10 * p),
+                  spreadRadius: a,
+                ),
+              ],
+            ),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(18),
+                onTap: widget.onTap,
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.subtitles_rounded, size: 18, color: content),
+                      const SizedBox(width: 6),
+                      Text(
+                        widget.langCode,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight:
+                              a > 0.5 ? FontWeight.w800 : FontWeight.w700,
+                          letterSpacing: 0.5,
+                          color: content,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

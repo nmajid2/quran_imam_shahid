@@ -8,6 +8,20 @@ final RegExp _arabicWord = RegExp('[ء-ي]');
 String _truncate(String s, int max) =>
     s.length <= max ? s : '${s.substring(0, max).trimRight()}…';
 
+/// Strips the redundant verse/translation code-fences, anchor spans, headings
+/// and rules from a tafsir passage so the (truncated) excerpt the AI sees is
+/// actual COMMENTARY — not the Arabic verses + translation it already has.
+/// Critical for al-Mizan, whose passages open with the full Arabic of every
+/// ayah in the block, which otherwise fills the whole excerpt budget.
+String _cleanTafsirForAi(String s) {
+  s = s.replaceAll(RegExp(r'```[\s\S]*?```'), ' '); // ```arabic/farsi/…``` blocks
+  s = s.replaceAll(RegExp(r'</?span[^>]*>'), ''); // <span id="…"> anchors
+  s = s.replaceAll(RegExp(r'^#{1,6}.*$', multiLine: true), ''); // # headings
+  s = s.replaceAll(RegExp(r'^\s*\*{2,}\s*$', multiLine: true), ''); // **** rules
+  s = s.replaceAll(RegExp(r'\n{3,}'), '\n\n');
+  return s.trim();
+}
+
 /// Builds the per-ayah material (Arabic + translation + all-three-editions tafsir +
 /// Mufradat word meanings) for a set of ayat, ready to hand to [OpenAiClient].
 ///
@@ -40,7 +54,8 @@ Future<List<AiAyahMaterial>> gatherAyahMaterial({
       if (c == null) continue;
       final key = '${e.id}:${c.ayahStart}-${c.ayahEnd}';
       if (!seenTafsir.add(key)) continue;
-      tafsir.add(AiTafsirSnippet(e.name, e.author, _truncate(c.content, 1200)));
+      tafsir.add(AiTafsirSnippet(
+          e.name, e.author, _truncate(_cleanTafsirForAi(c.content), 2500)));
     }
 
     // Mufradat for each new Arabic word root.

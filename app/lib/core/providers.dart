@@ -4,23 +4,28 @@ import '../data/models/surah.dart';
 import '../data/models/tafsir.dart';
 import '../features/lexicon/lexicon_db.dart';
 import '../features/tafsir/tafsir_db.dart';
-import 'api_client.dart';
 import 'config.dart';
+import 'local_content.dart';
 
-/// Single gateway client for the whole app.
-final apiClientProvider = Provider<ApiClient>((ref) => ApiClient());
+/// All Quran text + reciter catalog, bundled in the APK and served on-device
+/// (no gateway). Single instance for the whole app.
+final localContentProvider = Provider<LocalContent>((ref) => LocalContent());
 
 /// Current UI / content language (fa | en | nl).
 final languageProvider = StateProvider<String>((ref) => AppConfig.defaultLanguage);
 
-/// Surah list (fetched from the gateway; cached for the session).
-final surahListProvider = FutureProvider<List<SurahSummary>>((ref) {
-  return ref.watch(apiClientProvider).listSurahs();
+/// Surah list — read from the bundled Quran (loaded once into memory).
+final surahListProvider = FutureProvider<List<SurahSummary>>((ref) async {
+  final store = ref.watch(localContentProvider);
+  await store.ensureLoaded();
+  return store.listSurahs();
 });
 
-/// A single surah's full text.
-final surahProvider = FutureProvider.family<Surah, int>((ref, number) {
-  return ref.watch(apiClientProvider).getSurah(number);
+/// A single surah's full text, from the bundled Quran.
+final surahProvider = FutureProvider.family<Surah, int>((ref, number) async {
+  final store = ref.watch(localContentProvider);
+  await store.ensureLoaded();
+  return store.getSurah(number);
 });
 
 /// Tafsir engine — reads the tafsir databases bundled inside the app (offline,

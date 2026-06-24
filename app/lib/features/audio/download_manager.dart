@@ -42,6 +42,45 @@ class DownloadManager {
     return true;
   }
 
+  /// Number of downloaded `.mp3` files per owner (a reciterId for the Arabic, or
+  /// `translation_<lang>` for a translation) and surah, by scanning the audio
+  /// directory once. Lets the surah list badge each card's offline status.
+  Future<Map<String, Map<int, int>>> scanCounts() async {
+    final root = await _audioRoot();
+    final out = <String, Map<int, int>>{};
+    if (!await root.exists()) return out;
+    await for (final owner in root.list(followLinks: false)) {
+      if (owner is! Directory) continue;
+      final ownerName = owner.path.split(Platform.pathSeparator).last;
+      final perSurah = <int, int>{};
+      await for (final sdir in owner.list(followLinks: false)) {
+        if (sdir is! Directory) continue;
+        final surah =
+            int.tryParse(sdir.path.split(Platform.pathSeparator).last);
+        if (surah == null) continue;
+        var n = 0;
+        await for (final f in sdir.list(followLinks: false)) {
+          if (f is File && f.path.endsWith('.mp3')) n++;
+        }
+        if (n > 0) perSurah[surah] = n;
+      }
+      out[ownerName] = perSurah;
+    }
+    return out;
+  }
+
+  /// The subset of [urls] (ayah -> CDN URL) whose files aren't on disk yet, so a
+  /// download fetches only what's missing.
+  Future<Map<int, String>> missingAyat(
+      String reciterId, int surah, Map<int, String> urls) async {
+    final out = <int, String>{};
+    for (final e in urls.entries) {
+      final f = await _ayahFile(reciterId, surah, e.key);
+      if (!await f.exists()) out[e.key] = e.value;
+    }
+    return out;
+  }
+
   /// Download every missing ayah for a surah. [urls] maps ayah -> CDN URL.
   /// [onProgress] is called with (done, total) as each file lands.
   Future<void> downloadSurah(
@@ -49,10 +88,12 @@ class DownloadManager {
     int surah,
     Map<int, String> urls, {
     void Function(int done, int total)? onProgress,
+    bool Function()? isCancelled,
   }) async {
     final total = urls.length;
     var done = 0;
     for (final entry in urls.entries) {
+      if (isCancelled?.call() ?? false) return;
       final file = await _ayahFile(reciterId, surah, entry.key);
       if (!await file.exists()) {
         final resp = await _http.get(Uri.parse(entry.value));

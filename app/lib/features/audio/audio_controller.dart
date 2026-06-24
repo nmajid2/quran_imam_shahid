@@ -5,14 +5,40 @@ import 'package:just_audio/just_audio.dart';
 
 import '../../core/providers.dart';
 import '../../data/models/reciter.dart';
+import 'audio_prefs.dart';
 import 'download_manager.dart';
+
+/// Which clip is currently playing for the active ayah: the Arabic recitation,
+/// or (when "read translation" is on) that ayah's translation audio after it.
+enum _Leg { arabic, translation }
 
 final downloadManagerProvider =
     Provider<DownloadManager>((ref) => DownloadManager());
 
-/// Reciter catalog from the gateway (default + list).
-final recitersProvider = FutureProvider<ReciterCatalog>((ref) {
-  return ref.watch(apiClientProvider).listReciters();
+/// Storage "owner" key for a language's translation audio on disk — keeps it
+/// separate from the Arabic reciters. Shared by the downloader and the UI.
+String translationDownloadOwner(String lang) => 'translation_$lang';
+
+/// Snapshot of how many ayah files are on disk per owner + surah, for badging
+/// surah cards with their offline status. Refreshed after each download.
+class DownloadStatus {
+  const DownloadStatus(this._counts);
+  final Map<String, Map<int, int>> _counts;
+
+  bool isComplete(String owner, int surah, int ayahCount) =>
+      ayahCount > 0 && (_counts[owner]?[surah] ?? 0) >= ayahCount;
+}
+
+final downloadStatusProvider = FutureProvider<DownloadStatus>((ref) async {
+  final dm = ref.watch(downloadManagerProvider);
+  return DownloadStatus(await dm.scanCounts());
+});
+
+/// Reciter catalog — bundled in the APK, read on-device (no gateway).
+final recitersProvider = FutureProvider<ReciterCatalog>((ref) async {
+  final store = ref.watch(localContentProvider);
+  await store.ensureLoaded();
+  return store.reciters();
 });
 
 /// The reciter the user has chosen. Null until first set; the UI falls back to
@@ -31,6 +57,7 @@ class AudioState {
   final bool downloading;
   final int downloadDone;
   final int downloadTotal;
+  final bool downloadingTranslation; // current phase: translation vs Quran audio
   final bool downloaded; // whole surah present on disk for this reciter
   final String? error;
 
@@ -45,6 +72,7 @@ class AudioState {
     this.downloading = false,
     this.downloadDone = 0,
     this.downloadTotal = 0,
+    this.downloadingTranslation = false,
     this.downloaded = false,
     this.error,
   });
@@ -63,6 +91,7 @@ class AudioState {
     bool? downloading,
     int? downloadDone,
     int? downloadTotal,
+    bool? downloadingTranslation,
     bool? downloaded,
     String? error,
     bool clearError = false,
@@ -78,6 +107,8 @@ class AudioState {
       downloading: downloading ?? this.downloading,
       downloadDone: downloadDone ?? this.downloadDone,
       downloadTotal: downloadTotal ?? this.downloadTotal,
+      downloadingTranslation:
+          downloadingTranslation ?? this.downloadingTranslation,
       downloaded: downloaded ?? this.downloaded,
       error: clearError ? null : (error ?? this.error),
     );
@@ -96,6 +127,7 @@ class AudioController extends StateNotifier<AudioState> {
 
   Map<int, String> _urls = {}; // ayah -> CDN url for the loaded surah/reciter
   bool _advancing = false;
+  _Leg _leg = _Leg.arabic; // current ayah's clip: Arabic, then optional translation
 
   DownloadManager get _downloads => _ref.read(downloadManagerProvider);
 
@@ -114,9 +146,10 @@ class AudioController extends StateNotifier<AudioState> {
       loading: true,
     );
     try {
-      _urls = await _ref.read(apiClientProvider).surahAudioUrls(reciterId, surah);
-      final downloaded =
-          await _downloads.isSurahDownloaded(reciterId, surah, ayahCount);
+      final store = _ref.read(localContentProvider);
+      await store.ensureLoaded();
+      _urls = store.surahAudioUrls(reciterId, surah);
+      final downloaded = await _computeDownloaded(surah, reciterId, ayahCount);
       state = state.copyWith(loading: false, downloaded: downloaded);
     } catch (e) {
       state = state.copyWith(loading: false, error: '$e');
@@ -152,6 +185,7 @@ class AudioController extends StateNotifier<AudioState> {
     final surah = state.surah;
     final reciterId = state.reciterId;
     if (surah == null || reciterId == null) return;
+    _leg = _Leg.arabic; // a new ayah always starts with its Arabic recitation
     final uri = await _sourceFor(surah, ayah, reciterId);
     if (uri == null) {
       state = state.copyWith(error: 'No audio for ayah $ayah');
@@ -186,6 +220,7 @@ class AudioController extends StateNotifier<AudioState> {
   Future<void> select(int ayah) async {
     if (state.currentAyah == ayah) return; // already active — don't interrupt
     await _player.stop();
+    _leg = _Leg.arabic;
     state = state.copyWith(currentAyah: ayah, continuous: false, playing: false);
   }
 
@@ -249,23 +284,63 @@ class AudioController extends StateNotifier<AudioState> {
     state = state.copyWith(playing: false, continuous: false);
   }
 
-  /// Download the loaded surah's audio for the current reciter.
+  /// Download the loaded surah for offline use: the Arabic recitation for the
+  /// current reciter AND — for any language that has one — the translation audio
+  /// too, so offline playback works whether or not "read translation" is on.
   Future<void> downloadCurrentSurah() async {
     final surah = state.surah;
     final reciterId = state.reciterId;
     if (surah == null || reciterId == null || _urls.isEmpty) return;
+    final lang = _ref.read(languageProvider);
+    final store = _ref.read(localContentProvider);
+    // Empty when the language has no translation source (e.g. Dutch).
+    final trUrls = store.surahTranslationAudioUrls(lang, surah);
+    // Fetch only what's missing, so the button covers "Arabic and/or
+    // translation not yet downloaded" and the progress reflects real work.
+    final missingAr = await _downloads.missingAyat(reciterId, surah, _urls);
+    final missingTr = trUrls.isEmpty
+        ? const <int, String>{}
+        : await _downloads.missingAyat(_trReciterId(lang), surah, trUrls);
+    final grandTotal = missingAr.length + missingTr.length;
+    if (grandTotal == 0) {
+      state = state.copyWith(downloaded: true);
+      _ref.invalidate(downloadStatusProvider);
+      return;
+    }
     state = state.copyWith(
-        downloading: true, downloadDone: 0, downloadTotal: _urls.length, clearError: true);
+        downloading: true,
+        downloadDone: 0,
+        downloadTotal: grandTotal,
+        downloadingTranslation: missingAr.isEmpty, // straight to translation
+        clearError: true);
     try {
-      await _downloads.downloadSurah(
-        reciterId,
-        surah,
-        _urls,
-        onProgress: (done, total) {
-          state = state.copyWith(downloadDone: done, downloadTotal: total);
-        },
-      );
+      if (missingAr.isNotEmpty) {
+        await _downloads.downloadSurah(
+          reciterId,
+          surah,
+          missingAr,
+          onProgress: (done, _) {
+            state =
+                state.copyWith(downloadDone: done, downloadTotal: grandTotal);
+          },
+        );
+      }
+      if (missingTr.isNotEmpty) {
+        final base = missingAr.length;
+        state =
+            state.copyWith(downloadingTranslation: true, downloadDone: base);
+        await _downloads.downloadSurah(
+          _trReciterId(lang),
+          surah,
+          missingTr,
+          onProgress: (done, _) {
+            state = state.copyWith(
+                downloadDone: base + done, downloadTotal: grandTotal);
+          },
+        );
+      }
       state = state.copyWith(downloading: false, downloaded: true);
+      _ref.invalidate(downloadStatusProvider);
     } catch (e) {
       state = state.copyWith(downloading: false, error: '$e');
     }
@@ -279,12 +354,84 @@ class AudioController extends StateNotifier<AudioState> {
   }
 
   Future<void> _handleCompletion() async {
+    // After the Arabic recitation, optionally read the SAME ayah's translation
+    // (human audio) before moving on — when "read translation" is enabled and a
+    // translation source exists for the current language.
+    if (_leg == _Leg.arabic && _shouldReadTranslation(state.currentAyah)) {
+      await _playTranslationLeg(state.currentAyah!);
+      return;
+    }
+    await _advanceOrStop();
+  }
+
+  /// Advance to the next ayah's Arabic (continuous mode) or stop.
+  Future<void> _advanceOrStop() async {
+    _leg = _Leg.arabic;
     if (state.continuous && state.hasNext) {
       await playAyah(state.currentAyah! + 1, continuous: true);
     } else {
       await _player.stop();
       state = state.copyWith(playing: false);
     }
+  }
+
+  bool _shouldReadTranslation(int? ayah) {
+    if (ayah == null || !_ref.read(playTranslationProvider)) return false;
+    final lang = _ref.read(languageProvider);
+    return _ref.read(localContentProvider).hasTranslationAudio(lang);
+  }
+
+  /// Play the current ayah's translation recitation — local file if downloaded,
+  /// else streamed. On any failure, don't stall the surah — advance instead.
+  Future<void> _playTranslationLeg(int ayah) async {
+    final surah = state.surah;
+    final lang = _ref.read(languageProvider);
+    Uri? uri;
+    if (surah != null) {
+      final local = await _downloads.localPath(_trReciterId(lang), surah, ayah);
+      if (local != null) {
+        uri = Uri.file(local);
+      } else {
+        final url =
+            _ref.read(localContentProvider).translationAudioUrl(lang, surah, ayah);
+        if (url != null) uri = Uri.parse(url);
+      }
+    }
+    if (uri == null) {
+      await _advanceOrStop();
+      return;
+    }
+    _leg = _Leg.translation;
+    state = state.copyWith(loading: true, clearError: true);
+    try {
+      await _player.setAudioSource(AudioSource.uri(uri));
+      state = state.copyWith(loading: false, playing: true);
+      await _player.play();
+    } catch (_) {
+      await _advanceOrStop();
+    }
+  }
+
+  // ---- translation offline helpers ----
+
+  /// Synthetic "reciter id" the download store uses to keep a language's
+  /// translation audio separate from the Arabic reciters on disk.
+  String _trReciterId(String lang) => translationDownloadOwner(lang);
+
+  /// A surah counts as fully "downloaded" when its Arabic is present — and, for
+  /// languages that have a translation source, the translation audio too (the
+  /// Download button always fetches both, independent of the read-translation
+  /// toggle).
+  Future<bool> _computeDownloaded(
+      int surah, String reciterId, int ayahCount) async {
+    final arabic =
+        await _downloads.isSurahDownloaded(reciterId, surah, ayahCount);
+    final lang = _ref.read(languageProvider);
+    if (!arabic ||
+        !_ref.read(localContentProvider).hasTranslationAudio(lang)) {
+      return arabic;
+    }
+    return _downloads.isSurahDownloaded(_trReciterId(lang), surah, ayahCount);
   }
 
   @override

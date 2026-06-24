@@ -45,6 +45,50 @@ class Ayah {
   String translation(String lang) => translations[lang] ?? translations['en'] ?? '';
 }
 
+/// One hit from the gateway's full-text ayah search.
+class AyahSearchResult {
+  final int surah;
+  final int ayah;
+  final String textAr;
+  final String translation;
+  final String matched; // 'ar' | 'translation' — which field matched
+
+  AyahSearchResult({
+    required this.surah,
+    required this.ayah,
+    required this.textAr,
+    required this.translation,
+    required this.matched,
+  });
+
+  factory AyahSearchResult.fromJson(Map<String, dynamic> j) => AyahSearchResult(
+        surah: j['surah'] as int,
+        ayah: j['ayah'] as int,
+        textAr: (j['text_ar'] ?? '') as String,
+        translation: (j['translation'] ?? '') as String,
+        matched: (j['matched'] ?? 'ar') as String,
+      );
+}
+
+/// The result set for a search query, with the full match count for "showing N of M".
+class AyahSearchResponse {
+  final int total;
+  final bool truncated;
+  final List<AyahSearchResult> results;
+
+  AyahSearchResponse(
+      {required this.total, required this.truncated, required this.results});
+
+  factory AyahSearchResponse.fromJson(Map<String, dynamic> j) =>
+      AyahSearchResponse(
+        total: (j['total'] ?? 0) as int,
+        truncated: (j['truncated'] ?? false) as bool,
+        results: ((j['results'] ?? const []) as List)
+            .map((e) => AyahSearchResult.fromJson(e as Map<String, dynamic>))
+            .toList(),
+      );
+}
+
 class Surah {
   final int number;
   final String nameAr;
